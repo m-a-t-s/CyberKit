@@ -12,6 +12,14 @@ source "$SCRIPT_DIR/../common/config.sh"
 # Display banner
 print_banner "Red Team Initial Engagement Automation"
 
+# Global variables
+CLIENT_NAME=""
+TARGET_NAME=""
+IP_RANGE=""
+ENGAGEMENT_TYPE="black-box"
+TEST_MODE=false
+USE_API_RECON=false
+
 # Check for required tools
 check_dependencies() {
     log "INFO" "Checking required dependencies..."
@@ -143,14 +151,218 @@ EOF
     echo "$base_dir"
 }
 
+# Function to perform API-enhanced reconnaissance
+run_api_enhanced_reconnaissance() {
+    local base_dir="$1"
+    local targets=(${IP_RANGE//,/ })
+    local recon_dir="$base_dir/reconnaissance"
+    
+    log "INFO" "Starting API-enhanced reconnaissance..."
+    
+    # Directory for API-based recon results
+    local api_recon_dir="$recon_dir/api-enhanced"
+    ensure_dir "$api_recon_dir"
+    
+    # Process each target that appears to be a domain (not an IP range)
+    for target in "${targets[@]}"; do
+        if [[ ! $target =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$ ]]; then
+            # Target is likely a domain
+            log "INFO" "Performing API-enhanced reconnaissance for domain: $target"
+            
+            # Check for SecurityTrails API key
+            local securitytrails_key=$("$SCRIPT_DIR/../common/api-keys.sh" get securitytrails 2>/dev/null)
+            if [ $? -eq 0 ] && [ ! -z "$securitytrails_key" ]; then
+                log "INFO" "Using SecurityTrails API for subdomain enumeration..."
+                
+                # Query SecurityTrails API for subdomains
+                curl -s -H "APIKEY: $securitytrails_key" "https://api.securitytrails.com/v1/domain/$target/subdomains" \
+                    > "$api_recon_dir/securitytrails-$target.json"
+                
+                # Extract subdomains
+                if [ -s "$api_recon_dir/securitytrails-$target.json" ] && ! grep -q "message" "$api_recon_dir/securitytrails-$target.json"; then
+                    log "SUCCESS" "SecurityTrails subdomains retrieved successfully."
+                    jq -r '.subdomains[]' "$api_recon_dir/securitytrails-$target.json" | \
+                        sed "s/$/.$target/" > "$api_recon_dir/securitytrails-subdomains-$target.txt"
+                    
+                    # Merge with other subdomain discovery if it exists
+                    if [ -f "$recon_dir/web/subdomains-combined-$target.txt" ]; then
+                        cat "$api_recon_dir/securitytrails-subdomains-$target.txt" "$recon_dir/web/subdomains-combined-$target.txt" | \
+                            sort -u > "$recon_dir/web/subdomains-combined-$target.txt.new"
+                        mv "$recon_dir/web/subdomains-combined-$target.txt.new" "$recon_dir/web/subdomains-combined-$target.txt"
+                        log "INFO" "Combined SecurityTrails subdomains with previously discovered subdomains."
+                    else
+                        # If no previous subdomain file exists, create one
+                        cp "$api_recon_dir/securitytrails-subdomains-$target.txt" "$recon_dir/web/subdomains-combined-$target.txt"
+                    fi
+                else
+                    log "WARNING" "Failed to retrieve SecurityTrails data for $target, or API key may be invalid."
+                fi
+            else
+                log "WARNING" "SecurityTrails API key not found. Run 'common/api-keys.sh set securitytrails YOUR_API_KEY' to configure."
+            fi
+            
+            # Check for Hunter.io API key for email harvesting
+            local hunterio_key=$("$SCRIPT_DIR/../common/api-keys.sh" get hunterio 2>/dev/null)
+            if [ $? -eq 0 ] && [ ! -z "$hunterio_key" ]; then
+                log "INFO" "Using Hunter.io API for email harvesting..."
+                
+                # Query Hunter.io API for email addresses
+                curl -s "https://api.hunter.io/v2/domain-search?domain=$target&api_key=$hunterio_key" \
+                    > "$api_recon_dir/hunterio-$target.json"
+                
+                # Extract email addresses
+                if [ -s "$api_recon_dir/hunterio-$target.json" ] && ! grep -q "error" "$api_recon_dir/hunterio-$target.json"; then
+                    log "SUCCESS" "Hunter.io email data retrieved successfully."
+                    
+                    # Create email report
+                    echo "# Email Addresses for $target" > "$api_recon_dir/email-report-$target.md"
+                    echo "" >> "$api_recon_dir/email-report-$target.md"
+                    
+                    # Extract domain information
+                    local domain_info=$(jq -r '.data.domain' "$api_recon_dir/hunterio-$target.json")
+                    local email_count=$(jq -r '.data.emails | length' "$api_recon_dir/hunterio-$target.json")
+                    
+                    echo "## Domain Information" >> "$api_recon_dir/email-report-$target.md"
+                    echo "* Domain: $target" >> "$api_recon_dir/email-report-$target.md"
+                    echo "* Email count: $email_count" >> "$api_recon_dir/email-report-$target.md"
+                    echo "" >> "$api_recon_dir/email-report-$target.md"
+                    
+                    # Extract and format email addresses
+                    echo "## Email Addresses" >> "$api_recon_dir/email-report-$target.md"
+                    jq -r '.data.emails[] | "* " + .value + " - " + (.first_name // "") + " " + (.last_name // "") + " (" + (.position // "Unknown Position") + ")"' \
+                        "$api_recon_dir/hunterio-$target.json" >> "$api_recon_dir/email-report-$target.md"
+                    
+                    # Also save email addresses in a plain text file
+                    jq -r '.data.emails[].value' "$api_recon_dir/hunterio-$target.json" | sort -u > "$api_recon_dir/emails-$target.txt"
+                else
+                    log "WARNING" "Failed to retrieve Hunter.io data for $target, or API key may be invalid."
+                fi
+            else
+                log "WARNING" "Hunter.io API key not found. Run 'common/api-keys.sh set hunterio YOUR_API_KEY' to configure."
+            fi
+            
+            # Check for WhoisXML API key for WHOIS data
+            local whoisxml_key=$("$SCRIPT_DIR/../common/api-keys.sh" get whoisxml 2>/dev/null)
+            if [ $? -eq 0 ] && [ ! -z "$whoisxml_key" ]; then
+                log "INFO" "Using WhoisXML API for enhanced WHOIS data..."
+                
+                # Query WhoisXML API for detailed WHOIS information
+                curl -s "https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=$whoisxml_key&domainName=$target&outputFormat=JSON" \
+                    > "$api_recon_dir/whoisxml-$target.json"
+                
+                # Extract WHOIS information
+                if [ -s "$api_recon_dir/whoisxml-$target.json" ] && ! grep -q "error" "$api_recon_dir/whoisxml-$target.json"; then
+                    log "SUCCESS" "WhoisXML data retrieved successfully."
+                    
+                    # Create WHOIS report
+                    echo "# Enhanced WHOIS Data for $target" > "$api_recon_dir/whois-report-$target.md"
+                    echo "" >> "$api_recon_dir/whois-report-$target.md"
+                    
+                    # Extract registrar information
+                    local registrar=$(jq -r '.WhoisRecord.registrarName // "Unknown"' "$api_recon_dir/whoisxml-$target.json")
+                    local creation_date=$(jq -r '.WhoisRecord.createdDate // "Unknown"' "$api_recon_dir/whoisxml-$target.json")
+                    local expiry_date=$(jq -r '.WhoisRecord.expiresDate // "Unknown"' "$api_recon_dir/whoisxml-$target.json")
+                    
+                    echo "## Domain Information" >> "$api_recon_dir/whois-report-$target.md"
+                    echo "* Registrar: $registrar" >> "$api_recon_dir/whois-report-$target.md"
+                    echo "* Creation Date: $creation_date" >> "$api_recon_dir/whois-report-$target.md"
+                    echo "* Expiration Date: $expiry_date" >> "$api_recon_dir/whois-report-$target.md"
+                    echo "" >> "$api_recon_dir/whois-report-$target.md"
+                    
+                    # Extract contact information if available
+                    echo "## Contact Information" >> "$api_recon_dir/whois-report-$target.md"
+                    if jq -e '.WhoisRecord.registrant' "$api_recon_dir/whoisxml-$target.json" >/dev/null 2>&1; then
+                        local registrant_org=$(jq -r '.WhoisRecord.registrant.organization // "Unknown"' "$api_recon_dir/whoisxml-$target.json")
+                        local registrant_country=$(jq -r '.WhoisRecord.registrant.country // "Unknown"' "$api_recon_dir/whoisxml-$target.json")
+                        
+                        echo "### Registrant" >> "$api_recon_dir/whois-report-$target.md"
+                        echo "* Organization: $registrant_org" >> "$api_recon_dir/whois-report-$target.md"
+                        echo "* Country: $registrant_country" >> "$api_recon_dir/whois-report-$target.md"
+                        echo "" >> "$api_recon_dir/whois-report-$target.md"
+                    else
+                        echo "No detailed registrant information available." >> "$api_recon_dir/whois-report-$target.md"
+                        echo "" >> "$api_recon_dir/whois-report-$target.md"
+                    fi
+                else
+                    log "WARNING" "Failed to retrieve WhoisXML data for $target, or API key may be invalid."
+                fi
+            else
+                log "WARNING" "WhoisXML API key not found. Run 'common/api-keys.sh set whoisxml YOUR_API_KEY' to configure."
+            fi
+        else
+            # Target is an IP range - check for Shodan information
+            log "INFO" "Target appears to be an IP range. Checking for Shodan intelligence..."
+            
+            # Check for Shodan API key
+            local shodan_key=$("$SCRIPT_DIR/../common/api-keys.sh" get shodan 2>/dev/null)
+            if [ $? -eq 0 ] && [ ! -z "$shodan_key" ]; then
+                log "INFO" "Using Shodan API for network intelligence..."
+                
+                # If we have live hosts, query Shodan for each
+                if [ -f "$recon_dir/network/live-hosts-$(echo $target | tr '/' '-').txt" ]; then
+                    ensure_dir "$api_recon_dir/shodan"
+                    echo "# Shodan Intelligence Report" > "$api_recon_dir/shodan-report.md"
+                    echo "" >> "$api_recon_dir/shodan-report.md"
+                    
+                    while read -r ip; do
+                        log "INFO" "Querying Shodan for information about $ip..."
+                        
+                        # Query Shodan API for host information
+                        curl -s "https://api.shodan.io/shodan/host/$ip?key=$shodan_key" \
+                            > "$api_recon_dir/shodan/shodan-$ip.json"
+                        
+                        # Extract Shodan information
+                        if [ -s "$api_recon_dir/shodan/shodan-$ip.json" ] && ! grep -q "error" "$api_recon_dir/shodan/shodan-$ip.json"; then
+                            log "SUCCESS" "Shodan data retrieved for $ip."
+                            
+                            # Extract key information
+                            local ports=$(jq -r '.ports[]' "$api_recon_dir/shodan/shodan-$ip.json" 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+                            local hostnames=$(jq -r '.hostnames[]' "$api_recon_dir/shodan/shodan-$ip.json" 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+                            local country=$(jq -r '.country_name // "Unknown"' "$api_recon_dir/shodan/shodan-$ip.json")
+                            local org=$(jq -r '.org // "Unknown"' "$api_recon_dir/shodan/shodan-$ip.json")
+                            
+                            # Add to report
+                            echo "## IP: $ip" >> "$api_recon_dir/shodan-report.md"
+                            echo "* Organization: $org" >> "$api_recon_dir/shodan-report.md"
+                            echo "* Country: $country" >> "$api_recon_dir/shodan-report.md"
+                            echo "* Hostnames: $hostnames" >> "$api_recon_dir/shodan-report.md"
+                            echo "* Open Ports: $ports" >> "$api_recon_dir/shodan-report.md"
+                            echo "" >> "$api_recon_dir/shodan-report.md"
+                            
+                            # Extract detailed service information
+                            echo "### Services" >> "$api_recon_dir/shodan-report.md"
+                            jq -r '.data[] | "* Port " + (.port|tostring) + "/" + .transport + " - " + (.product // "Unknown") + " " + (.version // "")' \
+                                "$api_recon_dir/shodan/shodan-$ip.json" 2>/dev/null >> "$api_recon_dir/shodan-report.md"
+                            echo "" >> "$api_recon_dir/shodan-report.md"
+                            echo "---" >> "$api_recon_dir/shodan-report.md"
+                            echo "" >> "$api_recon_dir/shodan-report.md"
+                        else
+                            log "WARNING" "No Shodan data found for $ip or API key may be invalid."
+                        fi
+                        
+                        # Respect rate limits
+                        sleep 2
+                    done < "$recon_dir/network/live-hosts-$(echo $target | tr '/' '-').txt"
+                else
+                    log "WARNING" "No live hosts found to check with Shodan."
+                fi
+            else
+                log "WARNING" "Shodan API key not found. Run 'common/api-keys.sh set shodan YOUR_API_KEY' to configure."
+            fi
+        fi
+    done
+    
+    log "SUCCESS" "API-enhanced reconnaissance completed."
+}
+
 # Run initial reconnaissance
 run_reconnaissance() {
+    log "INFO" "Starting initial reconnaissance..."
+    
     local base_dir="$1"
     local targets=(${IP_RANGE//,/ })
     local recon_dir="$base_dir/reconnaissance"
     local scan_dir="$base_dir/scanning"
-    
-    log "INFO" "Starting initial reconnaissance..."
     
     # Log start time
     local start_time=$(date +%s)
@@ -310,6 +522,42 @@ EOF
         fi
     done
     
+    # Add API-based findings if they exist
+    if [ -d "$base_dir/reconnaissance/api-enhanced" ]; then
+        echo "" >> "$summary_file"
+        echo "## Enhanced Intelligence" >> "$summary_file"
+        
+        # Add SecurityTrails findings
+        if ls "$base_dir/reconnaissance/api-enhanced/securitytrails-subdomains-"* 1> /dev/null 2>&1; then
+            echo "" >> "$summary_file"
+            echo "### SecurityTrails Intelligence" >> "$summary_file"
+            for file in "$base_dir/reconnaissance/api-enhanced/securitytrails-subdomains-"*; do
+                domain=$(basename "$file" | sed 's/securitytrails-subdomains-//' | sed 's/.txt//')
+                count=$(wc -l < "$file")
+                echo "- **$domain**: $count additional subdomains discovered" >> "$summary_file"
+            done
+        fi
+        
+        # Add Hunter.io findings
+        if ls "$base_dir/reconnaissance/api-enhanced/emails-"* 1> /dev/null 2>&1; then
+            echo "" >> "$summary_file"
+            echo "### Email Intelligence" >> "$summary_file"
+            for file in "$base_dir/reconnaissance/api-enhanced/emails-"*; do
+                domain=$(basename "$file" | sed 's/emails-//' | sed 's/.txt//')
+                count=$(wc -l < "$file")
+                echo "- **$domain**: $count email addresses discovered" >> "$summary_file"
+                echo "  - See detailed report in: reconnaissance/api-enhanced/email-report-$domain.md" >> "$summary_file"
+            done
+        fi
+        
+        # Add Shodan findings
+        if [ -f "$base_dir/reconnaissance/api-enhanced/shodan-report.md" ]; then
+            echo "" >> "$summary_file"
+            echo "### Shodan Intelligence" >> "$summary_file"
+            echo "Shodan intelligence report available at reconnaissance/api-enhanced/shodan-report.md" >> "$summary_file"
+        fi
+    fi
+    
     # Add next steps section
     cat >> "$summary_file" << EOF
 
@@ -347,6 +595,7 @@ EOF
 run_vulnerability_scanning() {
     local base_dir="$1"
     local scan_dir="$base_dir/scanning"
+    local vuln_dir="$base_dir/scanning/vulnerabilities"
     
     log "INFO" "Starting vulnerability scanning..."
     
@@ -361,7 +610,7 @@ run_vulnerability_scanning() {
                 target_name=$(basename "$target_file" | sed 's/live-web-//g' | sed 's/.txt//g')
                 log "INFO" "Running Nuclei vulnerability scan on $target_name web endpoints..."
                 
-                nuclei -l "$target_file" -o "$scan_dir/vulnerabilities/nuclei-$target_name.txt" -severity low,medium,high,critical 2>&1 | tee -a "$base_dir/logs/vulnerability-scan.log"
+                nuclei -l "$target_file" -o "$vuln_dir/nuclei-$target_name.txt" -severity low,medium,high,critical 2>&1 | tee -a "$base_dir/logs/vulnerability-scan.log"
             fi
         done
     fi
@@ -372,7 +621,7 @@ run_vulnerability_scanning() {
             target_name=$(basename "$target_file" | sed 's/live-hosts-//g' | sed 's/.txt//g')
             log "INFO" "Running Nmap vulnerability scan on $target_name hosts..."
             
-            nmap -sV --script vuln -iL "$target_file" -oA "$scan_dir/vulnerabilities/nmap-vuln-$target_name" 2>&1 | tee -a "$base_dir/logs/vulnerability-scan.log"
+            nmap -sV --script vuln -iL "$target_file" -oA "$vuln_dir/nmap-vuln-$target_name" 2>&1 | tee -a "$base_dir/logs/vulnerability-scan.log"
         fi
     done
     
@@ -382,7 +631,7 @@ run_vulnerability_scanning() {
     # Log completion time
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
-    log "SUCCESS" "Vulnerability scanning completed in $(seconds_to_time $duration). Results saved to $scan_dir/vulnerabilities/"
+    log "SUCCESS" "Vulnerability scanning completed in $(seconds_to_time $duration). Results saved to $vuln_dir/"
 }
 
 # Generate a summary of vulnerability findings
@@ -571,12 +820,19 @@ parse_command_line() {
         TEST_MODE=false
     fi
     
+    # Handle API-enhanced reconnaissance
+    if [[ "$1" == "--api-recon" ]]; then
+        USE_API_RECON=true
+        shift
+    fi
+    
     # Handle help command
     if [[ "$1" == "--help" || "$1" == "-h" ]]; then
         echo "Usage: $0 [options]"
         echo ""
         echo "Options:"
         echo "  --test       Run in test mode with default values"
+        echo "  --api-recon  Use API-enhanced reconnaissance (requires API keys)"
         echo "  --help, -h   Show this help message"
         echo ""
         echo "Description:"
@@ -606,6 +862,11 @@ main() {
     
     # Run initial reconnaissance
     run_reconnaissance "$base_dir"
+    
+    # If API-enhanced reconnaissance is requested, run it
+    if [ "$USE_API_RECON" = true ]; then
+        run_api_enhanced_reconnaissance "$base_dir"
+    fi
     
     # Run vulnerability scanning
     run_vulnerability_scanning "$base_dir"

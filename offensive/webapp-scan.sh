@@ -31,6 +31,9 @@ SKIP_SSL=false
 USE_NUCLEI=true
 USE_ZAP=false
 USE_BURP=false
+USE_SHODAN=false
+USE_VIRUSTOTAL=false
+USE_SECURITYTRAILS=false
 
 # Function to check dependencies
 check_dependencies() {
@@ -141,6 +144,18 @@ parse_arguments() {
                 USE_BURP=true
                 shift
                 ;;
+            --shodan)
+                USE_SHODAN=true
+                shift
+                ;;
+            --virustotal)
+                USE_VIRUSTOTAL=true
+                shift
+                ;;
+            --securitytrails)
+                USE_SECURITYTRAILS=true
+                shift
+                ;;
             -h|--help)
                 echo "Usage: $0 [options]"
                 echo ""
@@ -162,6 +177,9 @@ parse_arguments() {
                 echo "  --no-nuclei              Skip Nuclei vulnerability scanning"
                 echo "  --zap                    Use OWASP ZAP for scanning (if available)"
                 echo "  --burp                   Generate Burp Suite project file"
+                echo "  --shodan                 Use Shodan API for enhanced reconnaissance"
+                echo "  --virustotal             Check domain with VirusTotal API"
+                echo "  --securitytrails         Use SecurityTrails API for subdomain discovery"
                 echo "  -h, --help               Show this help message"
                 exit 0
                 ;;
@@ -305,6 +323,100 @@ do_reconnaissance() {
         fi
     fi
     
+    # Enhanced reconnaissance with external APIs if requested
+    if [ "$USE_SHODAN" = true ] || [ "$USE_VIRUSTOTAL" = true ] || [ "$USE_SECURITYTRAILS" = true ]; then
+        log "INFO" "Performing enhanced reconnaissance with external APIs..."
+        
+        # Create external APIs directory
+        local external_dir="$recon_dir/external-apis"
+        ensure_dir "$external_dir"
+        
+        # Shodan API integration
+        if [ "$USE_SHODAN" = true ]; then
+            log "INFO" "Attempting to use Shodan API..."
+            # Try to get API key
+            local shodan_key=$("$SCRIPT_DIR/../common/api-keys.sh" get shodan 2>/dev/null)
+            if [ $? -eq 0 ] && [ ! -z "$shodan_key" ]; then
+                local domain=$(echo "$TARGET" | sed -E 's#https?://##' | sed -E 's#/.*##' | sed -E 's#:.*##')
+                log "INFO" "Querying Shodan for information about $domain..."
+                
+                # Use the key to query Shodan
+                curl -s "https://api.shodan.io/shodan/host/search?key=$shodan_key&query=hostname:$domain" \
+                    > "$external_dir/shodan-$domain.json"
+                
+                # Extract key information
+                if [ -s "$external_dir/shodan-$domain.json" ] && grep -q "matches" "$external_dir/shodan-$domain.json"; then
+                    log "SUCCESS" "Shodan data retrieved successfully."
+                    jq -r '.matches[] | "IP: \(.ip_str), Port: \(.port), Service: \(.product // "Unknown")"' \
+                        "$external_dir/shodan-$domain.json" > "$external_dir/shodan-summary.txt"
+                else
+                    log "WARNING" "No Shodan data found for $domain or API key may be invalid."
+                fi
+            else
+                log "WARNING" "Shodan API key not found. Run 'common/api-keys.sh set shodan YOUR_API_KEY' to configure."
+            fi
+        fi
+        
+        # VirusTotal API integration
+        if [ "$USE_VIRUSTOTAL" = true ]; then
+            log "INFO" "Attempting to use VirusTotal API..."
+            # Try to get API key
+            local vt_key=$("$SCRIPT_DIR/../common/api-keys.sh" get virustotal 2>/dev/null)
+            if [ $? -eq 0 ] && [ ! -z "$vt_key" ]; then
+                local domain=$(echo "$TARGET" | sed -E 's#https?://##' | sed -E 's#/.*##' | sed -E 's#:.*##')
+                log "INFO" "Querying VirusTotal for information about $domain..."
+                
+                # Use the key to query VirusTotal
+                curl -s -H "x-apikey: $vt_key" "https://www.virustotal.com/api/v3/domains/$domain" \
+                    > "$external_dir/virustotal-$domain.json"
+                
+                # Extract key information
+                if [ -s "$external_dir/virustotal-$domain.json" ] && ! grep -q "error" "$external_dir/virustotal-$domain.json"; then
+                    log "SUCCESS" "VirusTotal data retrieved successfully."
+                    jq '.data.attributes.last_analysis_stats' "$external_dir/virustotal-$domain.json" \
+                        > "$external_dir/virustotal-summary.txt"
+                else
+                    log "WARNING" "No VirusTotal data found for $domain or API key may be invalid."
+                fi
+            else
+                log "WARNING" "VirusTotal API key not found. Run 'common/api-keys.sh set virustotal YOUR_API_KEY' to configure."
+            fi
+        fi
+        
+        # SecurityTrails API integration
+        if [ "$USE_SECURITYTRAILS" = true ]; then
+            log "INFO" "Attempting to use SecurityTrails API..."
+            # Try to get API key
+            local st_key=$("$SCRIPT_DIR/../common/api-keys.sh" get securitytrails 2>/dev/null)
+            if [ $? -eq 0 ] && [ ! -z "$st_key" ]; then
+                local domain=$(echo "$TARGET" | sed -E 's#https?://##' | sed -E 's#/.*##' | sed -E 's#:.*##')
+                log "INFO" "Querying SecurityTrails for subdomains of $domain..."
+                
+                # Use the key to query SecurityTrails
+                curl -s -H "APIKEY: $st_key" "https://api.securitytrails.com/v1/domain/$domain/subdomains" \
+                    > "$external_dir/securitytrails-$domain.json"
+                
+                # Extract subdomains
+                if [ -s "$external_dir/securitytrails-$domain.json" ] && ! grep -q "message" "$external_dir/securitytrails-$domain.json"; then
+                    log "SUCCESS" "SecurityTrails data retrieved successfully."
+                    jq -r '.subdomains[]' "$external_dir/securitytrails-$domain.json" | \
+                        sed "s/$/.$domain/" > "$external_dir/securitytrails-subdomains.txt"
+                    
+                    # Combine with other subdomains if found
+                    if [ -f "$recon_dir/web/subdomains-combined-$domain.txt" ]; then
+                        cat "$external_dir/securitytrails-subdomains.txt" "$recon_dir/web/subdomains-combined-$domain.txt" | \
+                            sort -u > "$recon_dir/web/subdomains-combined-$domain.txt.new"
+                        mv "$recon_dir/web/subdomains-combined-$domain.txt.new" "$recon_dir/web/subdomains-combined-$domain.txt"
+                    fi
+                else
+                    log "WARNING" "No SecurityTrails data found for $domain or API key may be invalid."
+                fi
+            else
+                log "WARNING" "SecurityTrails API key not found. Run 'common/api-keys.sh set securitytrails YOUR_API_KEY' to configure."
+            fi
+        fi
+    fi
+    
     # Log completion time
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
@@ -337,15 +449,7 @@ do_mapping() {
     gobuster $gobuster_opts -o "$mapping_dir/gobuster-dirs.txt"
     
     # Extract found directories for further scanning
-    grep -o 'http.*#!/bin/bash
-# webapp-scan.sh - Web Application Assessment Script
-# ===================================================
-# This script automates web application security testing,
-# including reconnaissance, mapping, and vulnerability scanning.
-
-# Source common utilities and configuration
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-source "$SCRIPT_DIR/../common/utils.sh" "$mapping_dir/gobuster-dirs.txt" 2>/dev/null > "$mapping_dir/found-dirs.txt"
+    grep -o 'http.*$' "$mapping_dir/gobuster-dirs.txt" 2>/dev/null > "$mapping_dir/found-dirs.txt"
     
     # Parameter discovery with ffuf for medium and high scan levels
     if [[ "$SCAN_LEVEL" != "low" ]]; then
@@ -403,15 +507,7 @@ source "$SCRIPT_DIR/../common/utils.sh" "$mapping_dir/gobuster-dirs.txt" 2>/dev/
             gospider $gospider_opts -o "$mapping_dir/gospider"
             
             # Combine and deduplicate all found URLs
-            cat "$mapping_dir/gospider"/* 2>/dev/null | grep -o 'http.*#!/bin/bash
-# webapp-scan.sh - Web Application Assessment Script
-# ===================================================
-# This script automates web application security testing,
-# including reconnaissance, mapping, and vulnerability scanning.
-
-# Source common utilities and configuration
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-source "$SCRIPT_DIR/../common/utils.sh" | sort -u > "$mapping_dir/all-urls.txt"
+            cat "$mapping_dir/gospider"/* 2>/dev/null | grep -o 'http.*$' | sort -u > "$mapping_dir/all-urls.txt"
         else
             log "WARNING" "gospider not found, skipping deep crawling."
         fi
@@ -623,12 +719,15 @@ EOF
 generate_report() {
     log "INFO" "Generating final report..."
     
-    local report_file="$OUTPUT_DIR/reports/web-assessment-report.md"
+    local reports_dir="$OUTPUT_DIR/reports"
     local evidence_dir="$OUTPUT_DIR/evidence"
     local start_time=$(date +%s)
     
     # Create evidence directory
     ensure_dir "$evidence_dir/screenshots"
+    
+    # Create report header
+    local report_file="$reports_dir/web-assessment-report.md"
     
     # Create report header
     cat > "$report_file" << EOF
@@ -704,6 +803,62 @@ The following endpoints were discovered during the assessment:
 EOF
         
         cat "$OUTPUT_DIR/mapping/found-dirs.txt" | sed 's/^/- /' >> "$report_file"
+    fi
+    
+    # Add API-based findings if available
+    if [ -d "$OUTPUT_DIR/recon/external-apis" ]; then
+        log "INFO" "Adding API-based findings to report..."
+        
+        cat >> "$report_file" << EOF
+
+## External Intelligence Information
+EOF
+        
+        # Add Shodan findings
+        if [ -f "$OUTPUT_DIR/recon/external-apis/shodan-summary.txt" ]; then
+            cat >> "$report_file" << EOF
+
+### Shodan Intelligence
+
+The following services and exposures were identified via Shodan:
+
+$(cat "$OUTPUT_DIR/recon/external-apis/shodan-summary.txt")
+EOF
+        fi
+        
+        # Add VirusTotal findings
+        if [ -f "$OUTPUT_DIR/recon/external-apis/virustotal-summary.txt" ]; then
+            cat >> "$report_file" << EOF
+
+### VirusTotal Analysis
+
+Threat analysis from VirusTotal:
+
+\`\`\`
+$(cat "$OUTPUT_DIR/recon/external-apis/virustotal-summary.txt")
+\`\`\`
+EOF
+        fi
+        
+        # Add SecurityTrails findings
+        if [ -f "$OUTPUT_DIR/recon/external-apis/securitytrails-subdomains.txt" ]; then
+            local subdomain_count=$(wc -l < "$OUTPUT_DIR/recon/external-apis/securitytrails-subdomains.txt")
+            
+            cat >> "$report_file" << EOF
+
+### Subdomain Intelligence
+
+$subdomain_count subdomains were identified via SecurityTrails:
+
+$(head -10 "$OUTPUT_DIR/recon/external-apis/securitytrails-subdomains.txt" | sed 's/^/- /')
+EOF
+            
+            if [ "$subdomain_count" -gt 10 ]; then
+                echo "- ... and $(($subdomain_count - 10)) more subdomains" >> "$report_file"
+            fi
+            
+            echo "" >> "$report_file"
+        fi
     fi
     
     # Add recommendations based on scan level
@@ -843,12 +998,4 @@ main() {
 # Execute main if script is run directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
-fi#!/bin/bash
-# webapp-scan.sh - Web Application Assessment Script
-# ===================================================
-# This script automates web application security testing,
-# including reconnaissance, mapping, and vulnerability scanning.
-
-# Source common utilities and configuration
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-source "$SCRIPT_DIR/../common/utils.sh"
+fi
