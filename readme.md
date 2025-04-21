@@ -20,6 +20,7 @@ CyberKit is divided into two main components:
 - Web application testing integration
 - Reporting and documentation generation
 - API-enhanced intelligence gathering
+- Attacking WiFi and Enterprise WiFi
 
 ### Defensive Capabilities
 - Security monitoring and baseline configuration
@@ -27,6 +28,7 @@ CyberKit is divided into two main components:
 - Network traffic anonymization
 - Security policy enforcement
 - Monitoring and alerting setup
+- WiFi intrusion detection and active defense
 
 ### Core Features
 - Secure API key management
@@ -58,6 +60,7 @@ CyberKit integrates with and requires the following tools:
 - Gobuster, Ffuf
 - Subfinder, Amass, httpx
 - Nuclei, WhatWeb
+- Aircrack-ng, Wireshark
 - Suricata/Zeek (optional, for defensive toolkit)
 - And various others that will be checked and prompted during installation
 
@@ -97,6 +100,18 @@ CyberKit integrates with and requires the following tools:
 ./offensive/network-scan.sh -t 192.168.1.0/24 --vuln-scan --cve-lookup --threatintel
 ```
 
+#### WiFi Penetration Testing
+```bash
+# Basic WiFi reconnaissance
+./offensive/wifi-toolkit.sh scan -i wlan0
+
+# Capture handshakes
+./offensive/wifi-toolkit.sh capture -i wlan0 -b target_bssid
+
+# Setup evil twin attack
+./offensive/wifi-toolkit.sh eviltwin -i wlan0 -s "Target SSID"
+```
+
 ### Defensive Tools
 
 #### Operational Security Configuration
@@ -106,6 +121,21 @@ CyberKit integrates with and requires the following tools:
 
 # High security level
 ./defensive/opsec-config.sh -i eth0 -l high
+```
+
+#### WiFi Defence Monitoring
+```bash
+# Monitor WiFi for unauthorized access
+./defensive/wifi-defence.sh monitor -i wlan0 -n "MyNetwork"
+
+# Create baseline of trusted devices
+./defensive/wifi-defence.sh baseline -i wlan0 -t 3600
+
+# Active defense against intruders
+./defensive/wifi-defence.sh defend -i wlan0 -b 00:11:22:33:44:55
+
+# Enterprise WiFi monitoring
+./defensive/wifi-defence.sh monitor -i wlan0 -m enterprise --threatintel
 ```
 
 ### Shared Utilities
@@ -149,9 +179,11 @@ cyberkit/
 ├── offensive/               # Offensive security tools
 │   ├── redteam-init.sh      # Initial engagement setup
 │   ├── webapp-scan.sh       # Web application scanning
-│   └── network-scan.sh      # Network penetration testing
+│   ├── network-scan.sh      # Network penetration testing
+│   └── wifi-toolkit.sh      # WiFi attacks and jump hosts
 ├── defensive/               # Defensive security tools
-│   └── opsec-config.sh      # Operational security configuration
+│   ├── opsec-config.sh      # Operational security configuration
+│   └── wifi-defence.sh      # WiFi intrusion detection & defense
 ├── common/                  # Shared utilities
 │   ├── utils.sh             # Common utility functions
 │   ├── config.sh            # Configuration handling
@@ -159,7 +191,8 @@ cyberkit/
 │   ├── engagement-setup.sh  # Project setup utility
 │   └── zshrc-config         # Shell configuration for cybersecurity
 ├── docs/                    # Documentation
-│   └── api-keys-usage.md    # API keys usage guide
+│   ├── api-keys-usage.md    # API keys usage guide
+│   └── wifi-defence.md      # WiFi defense documentation
 ├── install.sh               # Installation script
 └── README.md                # Repository documentation
 ```
