@@ -1,0 +1,90 @@
+# API Keys and Sensitive Data
+.api_keys
+*.key
+*.pem
+*.p12
+*.pfx
+*.cer
+*.crt
+*_credentials*
+*credentials.json
+*credentials.yml
+*credentials.yaml
+*secret*
+*token*
+*apikey*
+*.env
+
+# Tool Output and Evidence
+results/
+output/
+evidence/
+engagements/
+reports/
+screenshots/
+logs/
+*.log
+*.pcap
+*.nmap
+*.gnmap
+*.xml
+*.json
+temp/
+tmp/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+.directory
+*~
+
+# Editor and IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*.bak
+*.sublime*
+.project
+.settings/
+
+# Compiled Python Files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Node modules
+node_modules/
+npm-debug.log
+
+# Exclude wordlists (can be large)
+wordlists/
+
+# Local configuration overrides
+.cyberkit.conf
+config.local.sh
+
+# User-specific settings
+user-settings/
+
+# But include templates directory
+!templates/
