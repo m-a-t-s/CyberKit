@@ -29,6 +29,7 @@ CyberKit is divided into two main components:
 - Security policy enforcement
 - Monitoring and alerting setup
 - WiFi intrusion detection and active defense
+- Malicious URL detection and analysis
 
 ### Core Features
 - Secure API key management
@@ -36,6 +37,7 @@ CyberKit is divided into two main components:
 - Integration with industry standard tools
 - Detailed markdown reporting
 - OPSEC considerations at multiple levels
+- Cross-platform compatibility (Linux & macOS)
 
 ## Installation
 
@@ -138,6 +140,21 @@ CyberKit integrates with and requires the following tools:
 ./defensive/wifi-defence.sh monitor -i wlan0 -m enterprise --threatintel
 ```
 
+#### URL Security Analysis
+```bash
+# Basic URL scan
+./defensive/url-scanner.sh https://example.com
+
+# Comprehensive scan with all checks
+./defensive/url-scanner.sh --all-checks --detailed https://example.com
+
+# Passive mode analysis without connecting to target
+./defensive/url-scanner.sh --passive --vt --phishtank https://example.com
+
+# Batch URL processing
+./defensive/url-scanner.sh --batch urls.txt --format json
+```
+
 ### Shared Utilities
 
 #### API Key Management
@@ -183,7 +200,8 @@ cyberkit/
 │   └── wifi-toolkit.sh      # WiFi attacks and jump hosts
 ├── defensive/               # Defensive security tools
 │   ├── opsec-config.sh      # Operational security configuration
-│   └── wifi-defence.sh      # WiFi intrusion detection & defense
+│   ├── wifi-defence.sh      # WiFi intrusion detection & defense
+│   └── url-scanner.sh       # Malicious URL detection & analysis
 ├── common/                  # Shared utilities
 │   ├── utils.sh             # Common utility functions
 │   ├── config.sh            # Configuration handling
@@ -192,7 +210,8 @@ cyberkit/
 │   └── zshrc-config         # Shell configuration for cybersecurity
 ├── docs/                    # Documentation
 │   ├── api-keys-usage.md    # API keys usage guide
-│   └── wifi-defence.md      # WiFi defense documentation
+│   ├── wifi-defence.md      # WiFi defense documentation
+│   └── url-scanner.md       # URL scanner documentation
 ├── install.sh               # Installation script
 └── README.md                # Repository documentation
 ```
