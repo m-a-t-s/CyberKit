@@ -38,8 +38,54 @@ CyberKit is divided into two main components:
 - Detailed markdown reporting
 - OPSEC considerations at multiple levels
 - Cross-platform compatibility (Linux & macOS)
+- **Docker containerization** for consistent deployment
+- **Persistent data storage** for engagement continuity
 
-## Installation
+## Quick Start (Docker - Recommended)
+
+### Prerequisites
+- Docker Engine 20.10+ and Docker Compose 2.0+
+- At least 4GB RAM and 10GB disk space
+
+### 🚀 One-Command Deployment
+```bash
+# Clone and deploy
+git clone https://github.com/yourusername/cyberkit.git
+cd cyberkit
+
+# Deploy with Docker (includes all tools and dependencies)
+./docker-deploy.sh deploy
+
+# Access the container
+./docker-deploy.sh shell
+
+# Run your first test
+./offensive/redteam-init.sh --test
+```
+
+### 🔑 API Key Configuration (Optional but Recommended)
+```bash
+# Add your API keys to .env file
+echo "SHODAN_API_KEY=your_shodan_key" >> .env
+echo "VIRUSTOTAL_API_KEY=your_virustotal_key" >> .env
+
+# Restart container to load keys
+./docker-deploy.sh restart
+```
+
+### 🎯 Quick Test Commands
+```bash
+# Network scanning
+./offensive/network-scan.sh -t 8.8.8.8
+
+# Web application testing
+./offensive/webapp-scan.sh -t httpbin.org --shodan --virustotal
+
+# URL security analysis
+./defensive/url-scanner.sh --all-checks https://example.com
+```
+
+## Manual Installation (Linux/macOS)
 
 ```bash
 # Clone the repository
@@ -188,6 +234,44 @@ CyberKit can integrate with various external APIs to enhance reconnaissance and 
 - **AlienVault OTX** - Threat intelligence
 
 See [API Key Usage](docs/api-keys-usage.md) for setup instructions.
+
+## 📚 Security Testing Playbooks
+
+CyberKit includes ready-to-use playbooks for common security testing scenarios:
+
+### Penetration Testing
+- [**Web Application Assessment**](playbooks/web-app-pentest.md) - Complete web app security testing
+- [**Network Penetration Testing**](playbooks/network-pentest.md) - Internal/external network assessment
+- [**WiFi Security Assessment**](playbooks/wifi-security.md) - Wireless network testing
+
+### Red Team Operations
+- [**Initial Access Playbook**](playbooks/initial-access.md) - Reconnaissance to initial compromise
+- [**Lateral Movement**](playbooks/lateral-movement.md) - Post-exploitation techniques
+- [**Persistence & Exfiltration**](playbooks/persistence.md) - Maintaining access
+
+### Blue Team Defense
+- [**Incident Response**](playbooks/incident-response.md) - Security incident investigation
+- [**Threat Hunting**](playbooks/threat-hunting.md) - Proactive threat detection
+- [**Network Monitoring**](playbooks/network-monitoring.md) - Continuous security monitoring
+
+## Docker Deployment Guide
+
+For detailed Docker deployment instructions, see [Docker Deployment Guide](docs/docker-deployment.md).
+
+### Key Docker Commands
+```bash
+./docker-deploy.sh deploy     # Build and start
+./docker-deploy.sh shell      # Access container
+./docker-deploy.sh status     # Check status
+./docker-deploy.sh cleanup    # Remove everything
+```
+
+### Data Persistence
+All engagement data is automatically saved to:
+- `./data/engagements/` - Project files and results
+- `./data/reports/` - Generated reports
+- `./data/evidence/` - Screenshots and evidence
+- `./data/logs/` - Tool execution logs
 
 ## Directory Structure
 

@@ -1,0 +1,108 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+.gitmodules
+
+# Documentation
+*.md
+docs/
+README*
+CHANGELOG*
+LICENSE*
+
+# Docker files (avoid recursive copying)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.cache
+/tmp/
+/temp/
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.exe
+target/
+build/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+.venv/
+venv/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+
+# Go
+*.test
+*.prof
+
+# Data directories that should be mounted as volumes
+data/
+engagements/
+reports/
+evidence/
+logs/
+
+# Configuration files that might contain sensitive data
+config/user.conf
+*.conf
+*.ini
+api-keys/
+.env
+.env.local
+
+# Testing files
+test/
+tests/
+*_test.*
+spec/
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# System files
+.Trash/
+$RECYCLE.BIN/
+*.lnk

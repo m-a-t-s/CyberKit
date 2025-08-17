@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  cyberkit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cyberkit:latest
+    container_name: cyberkit-toolkit
+    hostname: cyberkit
+    
+    # Interactive mode for CLI usage
+    stdin_open: true
+    tty: true
+    
+    # Network configuration
+    network_mode: host
+    
+    # Privilege escalation for certain security tools
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    
+    # Environment variables
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - CYBERKIT_ENV=docker
+      - SHODAN_API_KEY=${SHODAN_API_KEY}
+      - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY}
+      - SECURITYTRAILS_API_KEY=${SECURITYTRAILS_API_KEY}
+    
+    # Load environment variables from .env file
+    env_file:
+      - .env
+    
+    # Volume mounts for persistent data
+    volumes:
+      # Persistent data directories
+      - ./data/engagements:/home/cyberkit/engagements
+      - ./data/reports:/home/cyberkit/reports
+      - ./data/evidence:/home/cyberkit/evidence
+      - ./data/logs:/home/cyberkit/logs
+      
+      # Configuration overrides
+      - ./config/user.conf:/home/cyberkit/.cyberkit.conf:ro
+      
+      # X11 forwarding for GUI tools (Linux only)
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      
+      # SSH keys for git operations (optional)
+      - ~/.ssh:/home/cyberkit/.ssh:ro
+    
+    # Working directory
+    working_dir: /opt/cyberkit
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "test", "-f", "/opt/cyberkit/common/config.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Separate container for web services
+  cyberkit-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cyberkit:latest
+    container_name: cyberkit-web
+    
+    # Web service specific configuration
+    command: ["python3", "-m", "http.server", "8080", "--directory", "/home/cyberkit/reports"]
+    
+    ports:
+      - "8080:8080"
+    
+    volumes:
+      - ./data/reports:/home/cyberkit/reports:ro
+    
+    depends_on:
+      - cyberkit
+    
+    restart: unless-stopped
+    
+    profiles:
+      - web
+
+volumes:
+  # Named volumes for better management
+  cyberkit_engagements:
+    driver: local
+  cyberkit_reports:
+    driver: local
+  cyberkit_evidence:
+    driver: local
+  cyberkit_logs:
+    driver: local
+
+networks:
+  default:
+    name: cyberkit-network
+    driver: bridge
